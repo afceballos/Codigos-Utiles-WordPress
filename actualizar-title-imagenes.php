@@ -1,3 +1,4 @@
+<?php
 // ALT y TITLE automático en todas las imágenes (versión corregida 2025)
 add_filter( 'wp_get_attachment_image_attributes', function( $attr, $attachment, $size ) {
 
@@ -29,3 +30,4 @@ add_filter( 'wp_get_attachment_image_attributes', function( $attr, $attachment, 
 
     return $attr;
 }, 10, 3 );
+?>
