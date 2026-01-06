@@ -1,90 +1,77 @@
-Sub GenerarDescripcionesEstaticas()
-    Dim ws As Worksheet
-    Dim lastRow As Long, i As Long
+Function IA(instruccion As String, datos As Range) As String
+    On Error GoTo ErrorHandler
+    
     Dim request As Object
-    Dim apiKey As String, url As String
-    Dim datosUnidos As String, prompt As String, response As String
-    Dim colInicio As Integer, colFin As Integer, colDestino As Integer
+    Dim text As String, apiKey As String, response As String, url As String
+    Dim body As String
     Dim celda As Range
+    Dim datosUnidos As String
     
     ' --- CONFIGURACIÓN ---
-    apiKey = "API-PONER-AQUI" ' <--- TU API KEY
+    apiKey = "TU_API_KEY_AQUI" ' <--- PEGA TU API KEY OTRA VEZ
     url = "https://api.openai.com/v1/chat/completions"
-    
-    ' Configuración de columnas (A=1, P=16, Q=17)
-    colInicio = 1 ' Columna A
-    colFin = 16   ' Columna P
-    colDestino = 17 ' Columna Q (Donde se escribirá la descripción)
     ' ---------------------
 
-    Set ws = ActiveSheet
-    ' Detectar hasta qué fila hay datos en la columna A
-    lastRow = ws.Cells(ws.Rows.Count, colInicio).End(xlUp).Row
-    
-    ' Crear objeto HTTP una sola vez
-    Set request = CreateObject("MSXML2.XMLHTTP")
-
-    ' Recorrer fila por fila desde la 2 hasta el final
-    For i = 2 To lastRow
-        
-        ' Verificar si ya existe una descripción en la columna Q para no gastar saldo
-        If ws.Cells(i, colDestino).Value = "" Then
-            
-            ' 1. Unir datos de la fila (A hasta P)
-            datosUnidos = ""
-            Dim j As Integer
-            For j = colInicio To colFin
-                If Not IsError(ws.Cells(i, j).Value) And Len(ws.Cells(i, j).Value) > 0 Then
-                    datosUnidos = datosUnidos & ws.Cells(i, j).Value & ", "
-                End If
-            Next j
-            
-            ' 2. Crear el Prompt (El mismo que definimos antes)
-            prompt = "Actúa como experto inmobiliario en España. Crea perfil corporativo atractivo con estos datos: " & datosUnidos & ". Extensión máx 700 palabras."
-            
-            ' 3. Limpiar para JSON
-            Dim textBody As String
-            textBody = Replace(prompt, "\", "\\")
-            textBody = Replace(textBody, """", "\""")
-            textBody = Replace(textBody, vbCrLf, " ")
-            
-            Dim body As String
-            body = "{""model"": ""gpt-4o-mini"", ""messages"": [{""role"": ""user"", ""content"": """ & textBody & """}], ""temperature"": 0.7}"
-
-            ' 4. Llamar a la API
-            ' Nota: Ponemos un pequeño "DoEvents" para que Excel no se congele visualmente
-            DoEvents
-            On Error Resume Next ' Evitar que se detenga si falla una fila
-            
-            With request
-                .Open "POST", url, False
-                .setRequestHeader "Content-Type", "application/json"
-                .setRequestHeader "Authorization", "Bearer " + apiKey
-                .send body
-                
-                If .Status = 200 Then
-                    response = .responseText
-                    ' Extracción simplificada para este script
-                    Dim pStart As Integer, pEnd As Integer
-                    pStart = InStr(response, """content"": """) + 11
-                    Dim resultado As String
-                    resultado = Split(Mid(response, pStart), """,")(0)
-                    
-                    ' Limpieza final
-                    resultado = Replace(resultado, "\n", vbCrLf)
-                    resultado = Replace(resultado, "\"" ", """")
-                    resultado = Replace(resultado, "\\""", """")
-                    
-                    ' 5. ESCRIBIR EL RESULTADO FIJO EN LA CELDA
-                    ws.Cells(i, colDestino).Value = resultado
-                Else
-                    ws.Cells(i, colDestino).Value = "Error API: " & .Status
-                End If
-            End With
-            On Error GoTo 0
-            
+    ' 1. Unir el texto de todas las celdas del rango (A2:P2)
+    datosUnidos = ""
+    For Each celda In datos
+        If Not IsError(celda.Value) And Len(celda.Value) > 0 Then
+            ' Añadimos un espacio y coma entre cada dato
+            datosUnidos = datosUnidos & CStr(celda.Value) & ", "
         End If
-    Next i
+    Next celda
+
+    ' 2. Crear el prompt final (Instrucción + Datos del rango)
+    Dim promptFinal As String
+    promptFinal = instruccion & " Información del producto: " & datosUnidos
+
+    ' 3. Limpieza para JSON
+    text = Replace(promptFinal, "\", "\\")
+    text = Replace(text, """", "\""")
+    text = Replace(text, vbCrLf, " ")
     
-    MsgBox "¡Proceso terminado! Las descripciones están listas en la columna Q."
-End Sub
+    ' 4. Configurar la petición
+    Set request = CreateObject("MSXML2.XMLHTTP")
+    body = "{""model"": ""gpt-4o-mini"", ""messages"": [{""role"": ""user"", ""content"": """ & text & """}], ""temperature"": 0.7}"
+
+    ' 5. Enviar
+    With request
+        .Open "POST", url, False
+        .setRequestHeader "Content-Type", "application/json"
+        .setRequestHeader "Authorization", "Bearer " + apiKey
+        .send body
+        
+        If .Status <> 200 Then
+            IA = "Error API: " & .responseText
+            Exit Function
+        End If
+        response = .responseText
+    End With
+
+    ' 6. Extraer respuesta (Método robusto)
+    Dim partes() As String
+    partes = Split(response, """content"": """)
+    
+    If UBound(partes) > 0 Then
+        Dim resultadoBruto As String
+        resultadoBruto = partes(1)
+        Dim corte() As String
+        corte = Split(resultadoBruto, """,")
+        Dim textoFinal As String
+        textoFinal = corte(0)
+        
+        If InStr(textoFinal, """}") > 0 Then textoFinal = Split(textoFinal, """}")(0)
+
+        textoFinal = Replace(textoFinal, "\n", vbCrLf)
+        textoFinal = Replace(textoFinal, "\"" ", """")
+        textoFinal = Replace(textoFinal, "\\""", """")
+        
+        IA = textoFinal
+    Else
+        IA = "Error leyendo respuesta."
+    End If
+    Exit Function
+
+ErrorHandler:
+    IA = "Error VBA: " & Err.Description
+End Function
